@@ -1,0 +1,20 @@
+streamlit
+pandas
+
+# Excel(XLS/XLSX) masking
+xlrd>=2.0.1
+xlwt>=1.3.0
+xlutils>=2.0.0
+openpyxl>=3.1
+
+# PDF masking
+pymupdf>=1.24
+fonttools>=4.40
+
+# Image(JPG) masking — 로컬(RapidOCR) + Upstage API 두 엔진 모두 포함
+Pillow>=10.0
+numpy>=1.26
+rapidocr>=3.9
+onnxruntime>=1.20
+python-dotenv>=1.0
+requests>=2.31

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "masking-toolkit"
+version = "0.1.0"
+description = "PDF·JPG·XLS·XLSX 안의 실제 개인·사업체 정보를 형식·데이터 형은 유지한 채 더미 값으로 치환한다."
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["masking", "masking.core", "masking.xls", "masking.xlsx", "masking.pdf", "masking.jpg"]
+
+[tool.setuptools.package-dir]
+masking = "."

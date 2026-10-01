@@ -1,0 +1,4 @@
+-r xls/requirements.txt
+-r pdf/requirements.txt
+-r jpg/requirements.txt
+-r xlsx/requirements.txt

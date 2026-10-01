@@ -1,0 +1,17 @@
+# 민감 정보 — 절대 커밋 금지 (이 폴더에는 애초에 두지 않지만, 안전망으로 둠)
+.env
+masking_secrets/
+orig_data/
+*.key
+.streamlit/secrets.toml
+
+# 실행 결과물
+masked_data/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# OS
+.DS_Store
