@@ -1,16 +1,105 @@
 """Excel/PDF/Image Masking 세 페이지가 공유하는 화면 부품.
 
 형식별로 다른 부분(원본 인식·미리보기·항목 이름)은 각 페이지에 그대로 두고, 형식과 무관하게
-똑같이 반복되는 부분(진행 표시·결과 표시·"그래도 저장" 흐름)만 여기 모은다.
+똑같이 반복되는 부분(업로드·진행 표시·결과 표시·"그래도 저장" 흐름)만 여기 모은다.
+
+세 페이지는 더 이상 "프로젝트 폴더"를 공유하지 않는다 — Excel/PDF/Image가 각자 다른 회사의 파일을
+다룰 수도 있어서, 업로드한 원본과 매핑표(masking_secrets)를 형식별로 완전히 독립된 세션 임시 폴더에
+둔다(한 형식의 매핑표가 다른 형식의 실제값과 섞이지 않게 하기 위함).
 """
+import tempfile
+import zipfile
+from io import BytesIO
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
 from masking.run_masking import accept_flagged, run_pipeline
 
 
+def upload_section(format_key, extensions, upload_label):
+    """"1. 파일 업로드" 섹션: 원본 파일 + (선택) 이전 매핑표를 받아 이 형식 전용 세션 임시 폴더에 씀.
+    형식(format_key)마다 독립된 `tmp_dir_<format_key>`를 쓰므로, 매핑표도 형식별로 따로 관리된다.
+    성공하면 (orig_data_dir, masked_data_dir, secrets_dir)를 돌려주고, 업로드 전이면 None을 돌려준다
+    (호출한 페이지는 이때 안내만 하고 그 아래 단계는 그리지 않음)."""
+    secrets_zip = st.file_uploader(
+        f"이전 매핑표({format_key} 전용 masking_secrets.zip) — 이어서 쓰려면 업로드, 처음이면 비워둠",
+        type=["zip"], key=f"{format_key}_secrets_zip",
+    )
+    uploaded_files = st.file_uploader(
+        upload_label,
+        type=[e.lstrip(".") for e in extensions],
+        accept_multiple_files=True, key=f"{format_key}_orig_files",
+    )
+
+    if not uploaded_files:
+        st.info("원본 파일을 올려줘.")
+        return None
+
+    tmp_key = f"tmp_dir_{format_key}"
+    tmp_dir = st.session_state.get(tmp_key)
+    if tmp_dir is None:
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"masking_{format_key}_"))
+        st.session_state[tmp_key] = tmp_dir
+
+    orig_data_dir = tmp_dir / "orig_data"
+    masked_data_dir = tmp_dir / "masked_data"
+    secrets_dir = tmp_dir / "masking_secrets"
+    orig_data_dir.mkdir(parents=True, exist_ok=True)
+
+    for f in uploaded_files:
+        (orig_data_dir / f.name).write_bytes(f.getvalue())
+
+    if secrets_zip is not None and not secrets_dir.is_dir():
+        secrets_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(BytesIO(secrets_zip.getvalue())) as zf:
+            zf.extractall(secrets_dir)
+
+    st.success(f"원본 파일 {len(uploaded_files)}개 업로드됨.")
+    st.caption(
+        "매핑표: 이전 업로드로 이어서 씀" if secrets_dir.is_dir()
+        else "매핑표: 이번 실행에서 새로 만들어짐(실행 후 \"6. 결과\"에서 다운로드할 수 있음)"
+    )
+    return orig_data_dir, masked_data_dir, secrets_dir
+
+
+def _zip_dir(dir_path):
+    """dir_path 안의 파일 전체를 zip으로 묶어 바이트로 돌려준다(폴더가 없거나 비어 있으면 None)."""
+    dir_path = Path(dir_path)
+    if not dir_path.is_dir() or not any(f.is_file() for f in dir_path.rglob("*")):
+        return None
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for f in dir_path.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(dir_path))
+    return buf.getvalue()
+
+
+def download_buttons(masked_data_dir, secrets_dir, key_prefix=""):
+    """"마스킹 결과"와 "매핑표" 다운로드를 나란히 배치함 — 마스킹 직후 Cloud 세션이 끝나면 둘 다
+    서버에서 사라지므로, 결과를 실제로 쓰려면 다운로드가, 다음에 같은 가짜값을 이어 쓰려면 매핑표가 필요해
+    따로 찾을 필요 없이 한 자리에서 같이 받게 함."""
+    col_masked, col_secrets = st.columns(2)
+    with col_masked:
+        masked_zip = _zip_dir(masked_data_dir)
+        st.download_button(
+            "📦 마스킹 결과 다운로드", data=masked_zip or b"", disabled=masked_zip is None,
+            file_name=f"masked_data_{key_prefix}.zip", mime="application/zip",
+            key=f"{key_prefix}_masked_dl", use_container_width=True,
+        )
+    with col_secrets:
+        secrets_zip = _zip_dir(secrets_dir)
+        st.download_button(
+            "🔑 매핑표 다운로드 (다음에 이어서 쓰려면 보관)", data=secrets_zip or b"", disabled=secrets_zip is None,
+            file_name=f"masking_secrets_{key_prefix}.zip", mime="application/zip",
+            key=f"{key_prefix}_secrets_dl", use_container_width=True,
+        )
+
+
 def file_result_row(fr, extra=None):
-    """"5. 결과" 표의 한 행. extra를 주면 "파일명" 바로 뒤에 그 열들을 끼워 넣는다(Excel의 "형식" 등)."""
+    """결과 표의 한 행. extra를 주면 "파일명" 바로 뒤에 그 열들을 끼워 넣는다(Excel의 "형식" 등)."""
     row = {"파일명": fr.path.name}
     if extra:
         row.update(extra)
@@ -22,7 +111,7 @@ def file_result_row(fr, extra=None):
 
 
 def detail_row(fr, field_labels, extra=None):
-    """"6. 마스킹 세부내용" 표의 한 행. field_labels: {fr.changed의 키: 표시 이름}(열 index 또는 필드 id)."""
+    """"마스킹 세부내용" 표의 한 행. field_labels: {fr.changed의 키: 표시 이름}(열 index 또는 필드 id)."""
     row = {"파일명": fr.path.name}
     if extra:
         row.update(extra)
@@ -62,7 +151,7 @@ def preview_expander(session_key, orig_data_dir, masked_data_dir, secrets_dir, e
 
 def run_button(session_key, orig_data_dir, masked_data_dir, secrets_dir, extensions,
                row_fn=file_result_row, jpg_engine=None, spinner_text="마스킹 실행 중..."):
-    """"4. 마스킹 실행" 버튼 + 진행 표 실시간 갱신 + 실제 실행. 결과는 session_state[session_key]에 저장한다."""
+    """"마스킹 실행" 버튼 + 진행 표 실시간 갱신 + 실제 실행. 결과는 session_state[session_key]에 저장한다."""
     if st.button("▶ 마스킹 실행", type="primary", key=f"{session_key}_btn"):
         progress_area = st.empty()
         rows = []
@@ -84,13 +173,13 @@ def run_button(session_key, orig_data_dir, masked_data_dir, secrets_dir, extensi
 
 def render_results(session_key, masked_data_dir, secrets_dir, saved_where, row_fn=file_result_row,
                    key_prefix=""):
-    """"5. 결과" 섹션: 저장됨/검토 필요 분리 표시 + "그래도 저장" 흐름. session_state의 PipelineResult를
-    반환(없으면 None) — 호출한 페이지가 이어서 "6. 마스킹 세부내용"을 그릴 때 씀."""
+    """"결과" 섹션: 저장됨/검토 필요 분리 표시 + "그래도 저장" 흐름. session_state의 PipelineResult를
+    반환(없으면 None) — 호출한 페이지가 이어서 "세부내용"·"결과 다운로드"를 그릴 때 씀."""
     result = st.session_state.get(session_key)
     if result is None:
         return None
 
-    st.subheader("5. 결과")
+    st.subheader("6. 결과")
 
     if result.ok:
         st.success(f"저장됨: {len(result.ok)}건 → {saved_where}")
@@ -118,10 +207,10 @@ def render_results(session_key, masked_data_dir, secrets_dir, saved_where, row_f
 
 
 def render_detail_section(result, field_labels, extra_fn=None):
-    """"6. 마스킹 세부내용" 섹션. result가 없거나 저장된 파일이 없으면 아무것도 안 그린다."""
+    """"마스킹 세부내용" 섹션. result가 없거나 저장된 파일이 없으면 아무것도 안 그린다."""
     if not result or not result.ok:
         return
-    st.subheader("6. 마스킹 세부내용")
+    st.subheader("7. 마스킹 세부내용")
     st.caption("저장된 파일에서 실제로 어떤 항목을 몇 건 바꿨는지 보여줌(항목 이름은 엔진의 실제 이름을 그대로 씀).")
     rows = [detail_row(fr, field_labels, extra=(extra_fn(fr) if extra_fn else None)) for fr in result.ok]
     st.dataframe(pd.DataFrame(rows), use_container_width=True)

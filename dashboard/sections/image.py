@@ -33,11 +33,7 @@ def _describe(path):
         }
 
 
-def render(project_root):
-    orig_data_dir = project_root / "orig_data"
-    masked_data_dir = project_root / "masked_data"
-    secrets_dir = project_root / "masking_secrets"
-
+def render():
     st.title("Image Masking")
     st.caption("4대보험 고지서 등 이미지 마스킹")
     st.caption("현재 마스킹 엔진은 JPG(JPEG)만 지원함(PNG 등 다른 이미지 형식은 지원하지 않음).")
@@ -55,17 +51,22 @@ def render(project_root):
     if jpg_engine is None:
         st.warning("OCR 엔진을 선택해야 아래 인식·마스킹 단계를 진행할 수 있음.")
 
-    st.subheader("1. 원본 이미지 인식")
-    st.caption(f"`{orig_data_dir}`에서 jpg·jpeg 파일을 찾음.")
+    st.subheader("1. 파일 업로드")
+    dirs = _common.upload_section("image", {".jpg", ".jpeg"}, "원본 이미지 파일 업로드 (jpg·jpeg, 여러 개 가능)")
+    if dirs is None:
+        return
+    orig_data_dir, masked_data_dir, secrets_dir = dirs
+
+    st.subheader("2. 업로드된 이미지 인식")
     files = sorted(orig_data_dir.glob("*.jpg")) + sorted(orig_data_dir.glob("*.jpeg"))
 
-    st.subheader("2. 인식된 이미지 메타데이터")
+    st.subheader("3. 인식된 이미지 메타데이터")
     if not files:
-        st.info("이 프로젝트의 orig_data 폴더에 이미지 파일이 없음.")
+        st.info("업로드된 파일 중 이미지 파일이 없음.")
         return
     st.dataframe(pd.DataFrame(_describe(p) for p in files), use_container_width=True)
 
-    st.subheader("3. 원본 이미지 미리보기")
+    st.subheader("4. 원본 이미지 미리보기")
     st.caption("마스킹 전 원본을 그대로 확인함(아직 마스킹 전이라 실제 값 그대로 보임).")
     file_names = [p.name for p in files]
     sel_name = st.selectbox("미리볼 파일", file_names, key="image_preview_file")
@@ -85,7 +86,7 @@ def render(project_root):
         jpg_engine=jpg_engine,
     )
 
-    st.subheader("4. 마스킹 실행")
+    st.subheader("5. 마스킹 실행")
     st.caption(
         f"실제로 마스킹해 `{masked_data_dir / 'jpg'}`에 저장함(폴더가 없으면 새로 만들고, 이미 있으면 "
         "그대로 사용함). 유출 스캔·구조 검증을 통과한 파일만 저장되고, 걸린 파일은 저장하지 않고 "
@@ -104,7 +105,7 @@ def render(project_root):
     _common.render_detail_section(result, FIELD_LABELS)
 
     if result and result.ok:
-        st.subheader("7. 마스킹 전후 비교")
+        st.subheader("8. 마스킹 전후 비교")
         st.caption("저장된 이미지 중 하나를 골라 원본과 마스킹 결과를 나란히 확인함.")
         saved_names = [fr.path.name for fr in result.ok]
         cmp_name = st.selectbox("비교할 파일", saved_names, key="image_compare_file")
@@ -117,3 +118,7 @@ def render(project_root):
             st.caption("마스킹 결과")
             masked_path = masked_data_dir / cmp_fr.category / masked_name(cmp_fr.path.name)
             st.image(str(masked_path), use_container_width=True)
+
+    if result is not None:
+        st.subheader("9. 결과 다운로드")
+        _common.download_buttons(masked_data_dir, secrets_dir, key_prefix="image")

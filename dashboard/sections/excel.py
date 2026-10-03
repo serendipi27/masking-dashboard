@@ -73,25 +73,26 @@ def _detail_with_category(fr):
     return _common.detail_row(fr, FIELD_LABELS, extra={"형식": fr.category})
 
 
-def render(project_root):
-    orig_data_dir = project_root / "orig_data"
-    masked_data_dir = project_root / "masked_data"
-    secrets_dir = project_root / "masking_secrets"
-
+def render():
     st.title("Excel Masking")
     st.caption("XLS · XLSX 전자세금계산서 목록 마스킹")
 
-    st.subheader("1. 원본 Excel 인식")
-    st.caption(f"`{orig_data_dir}`에서 xls·xlsx 파일을 찾음.")
+    st.subheader("1. 파일 업로드")
+    dirs = _common.upload_section("excel", {".xls", ".xlsx"}, "원본 Excel 파일 업로드 (xls·xlsx, 여러 개 가능)")
+    if dirs is None:
+        return
+    orig_data_dir, masked_data_dir, secrets_dir = dirs
+
+    st.subheader("2. 업로드된 Excel 인식")
     files = sorted(orig_data_dir.glob("*.xls")) + sorted(orig_data_dir.glob("*.xlsx"))
 
-    st.subheader("2. 인식된 Excel 메타데이터")
+    st.subheader("3. 인식된 Excel 메타데이터")
     if not files:
-        st.info("이 프로젝트의 orig_data 폴더에 Excel 파일이 없음.")
+        st.info("업로드된 파일 중 Excel 파일이 없음.")
         return
     st.dataframe(pd.DataFrame(_describe(p) for p in files), use_container_width=True)
 
-    st.subheader("3. 원본 Excel 미리보기")
+    st.subheader("4. 원본 Excel 미리보기")
     st.caption("마스킹 전 원본 데이터의 앞부분(head)·뒷부분(tail)을 동시에 확인함(아직 마스킹 전이라 실제 값 그대로 보임).")
 
     file_names = [p.name for p in files]
@@ -117,7 +118,7 @@ def render(project_root):
         ),
     )
 
-    st.subheader("4. 마스킹 실행")
+    st.subheader("5. 마스킹 실행")
     st.caption(
         f"실제로 마스킹해 `{masked_data_dir}/xls` 또는 `{masked_data_dir}/xlsx`(형식별)에 저장함(폴더가 없으면 "
         "새로 만들고, 이미 있으면 그대로 사용함). 유출 스캔·구조 검증을 통과한 파일만 저장되고, 걸린 파일은 "
@@ -136,11 +137,11 @@ def render(project_root):
         saved_where=saved_where, row_fn=_row_with_category, key_prefix="excel",
     )
     if result and result.ok:
-        st.subheader("6. 마스킹 세부내용")
+        st.subheader("7. 마스킹 세부내용")
         st.caption("저장된 파일에서 실제로 어떤 항목을 몇 건 바꿨는지 보여줌(항목 이름은 원본 표의 열 이름을 그대로 씀).")
         st.dataframe(pd.DataFrame(_detail_with_category(fr) for fr in result.ok), use_container_width=True)
 
-        st.subheader("7. 마스킹 전후 비교")
+        st.subheader("8. 마스킹 전후 비교")
         st.caption("저장된 파일 중 하나를 골라 원본과 마스킹 결과의 첫 3행·마지막 2행을 비교함.")
         saved_names = [fr.path.name for fr in result.ok]
         cmp_name = st.selectbox("비교할 파일", saved_names, key="excel_compare_file")
@@ -154,3 +155,7 @@ def render(project_root):
             st.dataframe(_head_tail(_read_df(masked_path)), use_container_width=True)
         except Exception as e:
             st.error(f"비교 실패: {e}")
+
+    if result is not None:
+        st.subheader("9. 결과 다운로드")
+        _common.download_buttons(masked_data_dir, secrets_dir, key_prefix="excel")

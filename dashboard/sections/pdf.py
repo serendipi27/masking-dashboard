@@ -31,25 +31,26 @@ def _describe(path):
         }
 
 
-def render(project_root):
-    orig_data_dir = project_root / "orig_data"
-    masked_data_dir = project_root / "masked_data"
-    secrets_dir = project_root / "masking_secrets"
-
+def render():
     st.title("PDF Masking")
     st.caption("법인카드 이용내역 PDF 마스킹")
 
-    st.subheader("1. 원본 PDF 인식")
-    st.caption(f"`{orig_data_dir}`에서 PDF 파일을 찾음.")
+    st.subheader("1. 파일 업로드")
+    dirs = _common.upload_section("pdf", {".pdf"}, "원본 PDF 파일 업로드 (여러 개 가능)")
+    if dirs is None:
+        return
+    orig_data_dir, masked_data_dir, secrets_dir = dirs
+
+    st.subheader("2. 업로드된 PDF 인식")
     pdfs = sorted(orig_data_dir.glob("*.pdf"))
 
-    st.subheader("2. 인식된 PDF 메타데이터")
+    st.subheader("3. 인식된 PDF 메타데이터")
     if not pdfs:
-        st.info("이 프로젝트의 orig_data 폴더에 PDF 파일이 없음.")
+        st.info("업로드된 파일 중 PDF 파일이 없음.")
         return
     st.dataframe(pd.DataFrame(_describe(p) for p in pdfs), use_container_width=True)
 
-    st.subheader("3. 원본 PDF 미리보기")
+    st.subheader("4. 원본 PDF 미리보기")
     st.caption("마스킹 전 원본 내용을 페이지 단위로 직접 확인함(아직 마스킹 전이라 실제 값 그대로 보임).")
 
     file_names = [p.name for p in pdfs]
@@ -86,7 +87,7 @@ def render(project_root):
         ),
     )
 
-    st.subheader("4. 마스킹 실행")
+    st.subheader("5. 마스킹 실행")
     st.caption(
         f"실제로 마스킹해 `{masked_data_dir / 'pdf'}`에 저장함(폴더가 없으면 새로 만들고, 이미 있으면 "
         "그대로 사용함). 유출 스캔·구조 검증을 통과한 파일만 저장되고, 걸린 파일은 저장하지 않고 "
@@ -99,3 +100,7 @@ def render(project_root):
         saved_where=f"`{masked_data_dir / 'pdf'}`", key_prefix="pdf",
     )
     _common.render_detail_section(result, FIELD_LABELS)
+
+    if result is not None:
+        st.subheader("8. 결과 다운로드")
+        _common.download_buttons(masked_data_dir, secrets_dir, key_prefix="pdf")
