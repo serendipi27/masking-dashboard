@@ -11,9 +11,17 @@ _engine = None
 def _get_engine():
     global _engine
     if _engine is None:
+        import tempfile
+        from pathlib import Path
+
         from rapidocr import LangRec, ModelType, OCRVersion, RapidOCR
+        # 기본값은 모델을 패키지 설치 폴더(site-packages/rapidocr/models) 안에 내려받는데,
+        # Streamlit Cloud는 실행 시점에 그 폴더가 쓰기 금지라 Permission denied가 남. 쓰기 가능한
+        # 임시 폴더로 옮김(컨테이너가 살아있는 동안은 재사용되어 매 세션 다시 받지 않음).
+        model_dir = Path(tempfile.gettempdir()) / 'rapidocr_models'
         _engine = RapidOCR(params={'Rec.lang_type': LangRec.KOREAN, 'Rec.ocr_version': OCRVersion.PPOCRV5,
-                                   'Rec.model_type': ModelType.MOBILE})
+                                   'Rec.model_type': ModelType.MOBILE,
+                                   'Global.model_root_dir': model_dir})
     return _engine
 
 
